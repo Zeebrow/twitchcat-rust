@@ -1,5 +1,5 @@
 mod bot;
-use crate::bot::{Bot};
+use crate::bot::{Bot, TwitchChannel};
 use std::env;
 
 
@@ -8,7 +8,7 @@ fn main() -> Result<(), anyhow::Error> {
     println!("{:#?}", args);
     let mut b = Bot::new(None);
     let channel_name = "lol_nemesis";
-    b.add_channel(&String::from(channel_name)).unwrap_or_else(|e| {
+    b.add_channel(TwitchChannel::new(String::from(channel_name), None)).unwrap_or_else(|e| {
         println!("{} {}", e, channel_name)
     });
     b.run()
