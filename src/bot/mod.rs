@@ -7,14 +7,11 @@ use twitchchat::{UserConfig, AsyncRunner,
     twitch::color::Color,
 };
 
-use std::{str::FromStr, sync::mpsc::{Receiver, Sender}};
+use std::{str::FromStr, sync::mpsc::{Receiver, Sender}, fmt::Display};
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 
 use std::sync::mpsc;
-use timer::Timer;
-use chrono;
-use std::io::Write;
 
 
 #[derive(Debug, Clone)]
@@ -22,6 +19,12 @@ pub struct TwitchChannel {
     pub name: String,
     pub color: Color,
     pub msg_rate: Box<i8>, /* per-second*/
+}
+
+impl Display for TwitchChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl TwitchChannel {
@@ -43,79 +46,12 @@ impl TwitchChannel {
     
 }
 
-pub fn prompt(ps: &str) -> String {
-    let mut line = String::new();
-    print!("{}", ps);
-    std::io::stdout().flush().unwrap();
-    std::io::stdin().read_line(&mut line).expect("could not read a line from stdin");
-    line.trim().to_string()
-}
-
-enum ControllerCommand {
-    QUIT,
-    HELP,
-    UNKNWON,
-}
-
-#[derive(Debug)]
-pub struct UnknownCommandError{}
-
-impl std::error::Error for UnknownCommandError {
-    fn description(&self) -> &str {
-        "failed to parse bool"
-    }
-}
-impl std::fmt::Display for UnknownCommandError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        "provided string was not `true` or `false`".fmt(f)
-    }
-}
-impl<'a> FromStr for ControllerCommand {
-    // type Err = Box<dyn std::error::Error>;
-    type Err = Box<dyn std::error::Error>;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if s.eq("help") { Ok(Self::HELP) }
-        else if s.eq("quit") { Ok(Self::QUIT) }
-        else { 
-            Err(format!("not a command: {}", s).into())
-        }
-    }
-}
-
-
-pub struct BotController {
-    comm_in: Receiver<String>,
-    comm_out: Sender<String>,
-}
-
-impl BotController {
-    pub fn new() -> BotController {
-        let (tx, rx) = mpsc::channel();
-        BotController {comm_in: rx, comm_out: tx}
-    }
-
-    pub fn get_prompt(&self, ps: &str) {
-        loop {
-            let input = prompt(&ps);
-
-            let cmd = ControllerCommand::from_str(input.as_str()).unwrap_or_else(|e| {
-                eprintln!("{}", e);
-                ControllerCommand::UNKNWON
-            });
-            match cmd {
-                ControllerCommand::HELP => println!("type 'quit' to quit"),
-                ControllerCommand::QUIT => { println!("bye"); break; },
-                ControllerCommand::UNKNWON => {},
-            }
-        }
-    }
-}
 
 
 #[derive(Debug)]
 pub struct Bot {
     user_config: UserConfig,
-    channels: Vec<TwitchChannel>,
+    pub channels: Vec<TwitchChannel>,
     comms_in: Receiver<String>,
     comms_out: Sender<String>,
     running: bool,
@@ -123,60 +59,76 @@ pub struct Bot {
 
 impl Bot {
 
-    pub fn add_channel(&mut self, channel: TwitchChannel) -> anyhow::Result<(), String> {
-        let channels = self.channels.iter();
-
-        for c in channels {
+    pub fn add_channel(&mut self, channel: TwitchChannel) -> Result<(), String> {
+        dbg!(&self.channels);
+        for c in self.channels.iter() {
             if c.name == channel.name {
                 return Err(String::from("already joined channel"))
             } 
         }
+        dbg!(&self.channels);
         self.channels.push(channel.clone());
-        return Ok(())
+        dbg!(&self.channels);
+        Ok(())
     }
 
-    pub fn new(config: Option<UserConfig>) -> Bot{
+    pub fn set_config(&mut self) {
+        let user_config = UserConfig::builder()
+            .name(get_username().unwrap_or_else(|e| {panic!("Could not get username: {}", e)}))
+            .token(get_token().unwrap_or_else(|e| {panic!("Could not get token: {}", e)}))
+            .enable_all_capabilities()
+            .build().unwrap_or_else(|e| { panic!("Could not build config: {}", e)});
+        self.user_config = user_config;
+    }
+
+    pub fn set_channels(&mut self) {
         let channels = get_channels().unwrap_or_else(|e| {
-            println!("Could not get channels: {}", e);
+            println!("no channels provided ({})", e);
             vec![]
         });
-        let (comms_out, comms_in) = mpsc::channel();
-        match config {
-            None => {
-                let user_config = UserConfig::builder()
-                    .anonymous()
-                    .enable_all_capabilities()
-                    .build().unwrap_or_else(|e| { panic!("Could not build config: {}", e)});
-
-                // let channels = vec![];
-                Bot { user_config: user_config, channels: channels, running: false, comms_in: comms_in, comms_out: comms_out}
-            }
-            Some(_) => {
-                let user_config = UserConfig::builder()
-                    .name(get_username().unwrap_or_else(|e| {panic!("Could not get username: {}", e)}))
-                    .token(get_token().unwrap_or_else(|e| {panic!("Could not get token: {}", e)}))
-                    .enable_all_capabilities()
-                    .build().unwrap_or_else(|e| { panic!("Could not build config: {}", e)});
-
-                // let channels = vec![];
-                Bot { user_config: user_config, channels: channels, running: false, comms_in: comms_in, comms_out: comms_out}
-            }
-        }
+        self.channels = channels;
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn new() -> Bot{
+        // set some defaults
+        // let channels: Vec<TwitchChannel> = vec![TwitchChannel::new(String::from("museun"), Some(Color::from_str("Red").unwrap()) )];
+        let channels = vec![];
+        let user_config = UserConfig::builder()
+            .anonymous()
+            .enable_all_capabilities()
+            .build().unwrap_or_else(|e| { panic!("Could not build config: {}", e)});
+
+        // initialize a means of passing signals between the bot and controller
+        // the bot should block while waiting for a signal from the controller
+        let (comms_out, comms_in) = mpsc::channel();
+        Bot { user_config: user_config, channels: channels, running: false, comms_in: comms_in, comms_out: comms_out}
+    }
+
+    pub fn run(&self) -> Result<()> {
         println!("Starting bot");
-        // dbg!(&self);
-        let (tx, rx) = mpsc::sync_channel(1);
+        dbg!(&self);
+        let (tx, rx) = mpsc::channel();
+
+        // @@@
+        let res = smol::block_on(async move {run(&self.user_config, &self.channels, tx).await });
+        // let res = run(&self.user_config, &self.channels, tx);
+        // loop {
+        //     let got_message = rx.try_recv();
+        //     match got_message {
+        //         Ok(msg) => {
+        //             println!("=> [#{}] {}: {}", msg.channel(), msg.name(), msg.data())
+        //         }
+        //         Err(_) => {}
+        //     }
 
 
-        let res = smol::block_on(async move {run(&self.user_config, &self.channels, rx).await });
+        // }
         println!("exiting run");
-        res
+        Ok(())
     }
 }
 
-async fn run(user_config: &UserConfig, channels: &Vec<TwitchChannel>, rx: Receiver<u8>) -> anyhow::Result<()> {
+async fn run<'a>(user_config: &UserConfig, channels: &Vec<TwitchChannel>, tx: Sender<Privmsg<'a>>) -> anyhow::Result<()> {
 
     let connector = twitchchat::connector::smol::ConnectorTls::twitch()?;
     let mut runner = AsyncRunner::connect(connector, &user_config).await?;
@@ -208,15 +160,9 @@ async fn run(user_config: &UserConfig, channels: &Vec<TwitchChannel>, rx: Receiv
     let mut writer = runner.writer();
 
     loop {
-        let operation = rx.try_recv().unwrap_or_else(|e| {
-            0
-        });
-        if operation == 1 {
 
-            let quit = runner.quit_handle();
-            quit.notify().await;
-        }
-
+            // let quit = runner.quit_handle();
+            // quit.notify().await;
         match runner.next_message().await? {
             Status::Message(Commands::Privmsg(pm)) => {
                 // message_queue.push_back(pm.clone());
@@ -224,6 +170,7 @@ async fn run(user_config: &UserConfig, channels: &Vec<TwitchChannel>, rx: Receiv
                     if String::from(pm.channel()) == format!("#{}", chan.name) {
                         println!("{}", print_term_string(chan, &pm));
                     }
+                    tx.send(pm.clone()).unwrap();
                 }
                 // println!("{}", pm.channel());
             },
@@ -234,6 +181,10 @@ async fn run(user_config: &UserConfig, channels: &Vec<TwitchChannel>, rx: Receiv
     }
 
     Ok(())
+}
+
+pub fn colored_string(s: &String, c: Color) -> String {
+    std::format!("[#\x1b[38;2;{};{};{}m{}\x1b[0m]", c.rgb.0, c.rgb.1, c.rgb.2, &s)
 }
 
 pub fn print_term_string(channel: &TwitchChannel, pm: &Privmsg) -> String {

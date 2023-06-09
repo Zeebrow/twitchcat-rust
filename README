@@ -1,4 +1,0 @@
-set `TWITCH_TOKEN=oauth:xxx`
-set `TWITCH_NAME=yourname`
-set `TWITCH_CHANNEL=channel1,channel2,...`
-cargo run

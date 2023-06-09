@@ -1,4 +1,3 @@
-pub mod cli;
 use config_rs::conf::parser::conf;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{self};
@@ -63,11 +62,20 @@ impl Default for AppConfig {
     }
 }
 
+
 #[derive(Debug, Serialize, Deserialize)]
-struct Credentials {
+pub struct Credentials {
     pub username: String,
     #[serde(skip)]
     pub token: String,
+}
+impl Credentials {
+    fn new_anonymous() -> Credentials {
+        Credentials {
+            username: String::from("justinfan1234"),
+            token: String::from("justinfan1234"),
+        }
+    }
 }
 
 impl Default for Credentials {
